@@ -1,0 +1,1 @@
+"""Account validation app package."""

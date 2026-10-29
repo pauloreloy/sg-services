@@ -7,20 +7,19 @@ services:
     ports:
       - "4566:4566" # LocalStack Gateway (all mocked AWS services)
     environment:
-      - SERVICES=sqs,dynamodb
+      - SERVICES=sqs,dynamodb,s3,sns,events,stepfunctions
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
-      # Variables consumed by scripts/init-localstack.sh (resource names).
       - SQS_SOURCE_QUEUE_NAME=sg-share-queue
       - SQS_SUCCESS_QUEUE_NAME=sg-share-success-queue
       - SQS_FAILURE_QUEUE_NAME=sg-share-failure-queue
       - DYNAMODB_TABLE_NAME=sg-share-processing-records
       - DYNAMODB_GRANT_ID_INDEX_NAME=grant_id-processed_at-index
+      - DYNAMODB_GOVERNANCE_TABLE_NAME=sg-share-governance
     volumes:
-      # Init hook: LocalStack runs every script under ready.d/ once it is up,
-      # automatically creating the SQS queues and the DynamoDB table (+ GSI).
       - ./scripts/init-localstack.sh:/etc/localstack/init/ready.d/init-localstack.sh
+      - ./step_functions/governance_diagnostic_workflow.asl.json:/etc/localstack/init/ready.d/governance_diagnostic_workflow.asl.json
       - localstack-data:/var/lib/localstack
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
@@ -29,6 +28,7 @@ services:
       retries: 20
       start_period: 10s
 
+  # --- Legacy Consumer Service ---
   sqs-consumer:
     build:
       context: ./services/sqs-consumer
@@ -51,14 +51,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # --- checkStep Service (ADR Section 6.2) ---
   checkstep-service:
     build:
       context: ./services/checkstep-service
       dockerfile: Dockerfile
     container_name: sg-checkstep-service
     ports:
-      # Exposed on host port 80 -> container listens internally on 8080 as a
-      # non-root user (binding to port 80 requires root, which we avoid).
       - "80:8080"
     environment:
       - AWS_REGION=us-east-1
@@ -67,10 +66,197 @@ services:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - DYNAMODB_TABLE_NAME=sg-share-processing-records
       - DYNAMODB_GRANT_ID_INDEX_NAME=grant_id-processed_at-index
+      - DYNAMODB_GOVERNANCE_TABLE_NAME=sg-share-governance
       - LOG_LEVEL=INFO
     depends_on:
       localstack:
         condition: service_healthy
+    restart: unless-stopped
+
+  # --- Intake Service (Account C Entrypoint) ---
+  intake-service:
+    build:
+      context: ./services/intake-service
+      dockerfile: Dockerfile
+    container_name: sg-intake-service
+    ports:
+      - "8001:8080"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - SQS_FIRST_QUEUE_NAME=access-validation
+      - DYNAMODB_TABLE_NAME=sg-share-governance
+      - S3_PAYLOAD_BUCKET=sg-governance-payloads
+      - LOG_LEVEL=INFO
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Step 1: account-validation-service ---
+  account-validation-service:
+    build:
+      context: ./services/account-validation-service
+      dockerfile: Dockerfile
+    container_name: sg-account-validation-service
+    ports:
+      - "8002:8080"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - SQS_SOURCE_QUEUE_NAME=access-validation
+      - SQS_NEXT_QUEUE_NAME=database-validation
+      - SQS_FAILURE_QUEUE_NAME=workflow-failed
+      - DYNAMODB_TABLE_NAME=sg-share-governance
+      - LOG_LEVEL=INFO
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Step 2: catalog-validation-service ---
+  catalog-validation-service:
+    build:
+      context: ./services/catalog-validation-service
+      dockerfile: Dockerfile
+    container_name: sg-catalog-validation-service
+    ports:
+      - "8003:8080"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - SQS_SOURCE_QUEUE_NAME=database-validation
+      - SQS_NEXT_QUEUE_NAME=resource-sharing
+      - SQS_FAILURE_QUEUE_NAME=workflow-failed
+      - DYNAMODB_TABLE_NAME=sg-share-governance
+      - LOG_LEVEL=INFO
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Step 3: resource-sharing-service ---
+  resource-sharing-service:
+    build:
+      context: ./services/resource-sharing-service
+      dockerfile: Dockerfile
+    container_name: sg-resource-sharing-service
+    ports:
+      - "8004:8080"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - SQS_SOURCE_QUEUE_NAME=resource-sharing
+      - SQS_NEXT_QUEUE_NAME=share-acceptance
+      - SQS_FAILURE_QUEUE_NAME=workflow-failed
+      - DYNAMODB_TABLE_NAME=sg-share-governance
+      - LOG_LEVEL=INFO
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Step 4: share-acceptance-service ---
+  share-acceptance-service:
+    build:
+      context: ./services/share-acceptance-service
+      dockerfile: Dockerfile
+    container_name: sg-share-acceptance-service
+    ports:
+      - "8005:8080"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - SQS_SOURCE_QUEUE_NAME=share-acceptance
+      - SQS_NEXT_QUEUE_NAME=resource-links
+      - SQS_FAILURE_QUEUE_NAME=workflow-failed
+      - DYNAMODB_TABLE_NAME=sg-share-governance
+      - LOG_LEVEL=INFO
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Step 5: resource-link-service ---
+  resource-link-service:
+    build:
+      context: ./services/resource-link-service
+      dockerfile: Dockerfile
+    container_name: sg-resource-link-service
+    ports:
+      - "8006:8080"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - SQS_SOURCE_QUEUE_NAME=resource-links
+      - SQS_NEXT_QUEUE_NAME=permissions
+      - SQS_FAILURE_QUEUE_NAME=workflow-failed
+      - DYNAMODB_TABLE_NAME=sg-share-governance
+      - LOG_LEVEL=INFO
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Step 6: permissions-service ---
+  permissions-service:
+    build:
+      context: ./services/permissions-service
+      dockerfile: Dockerfile
+    container_name: sg-permissions-service
+    ports:
+      - "8007:8080"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - SQS_SOURCE_QUEUE_NAME=permissions
+      - SQS_COMPLETED_QUEUE_NAME=workflow-completed
+      - SQS_FAILURE_QUEUE_NAME=workflow-failed
+      - DYNAMODB_TABLE_NAME=sg-share-governance
+      - LOG_LEVEL=INFO
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Diagnostic Service (Account B Step Functions Trigger & Evaluator) ---
+  diagnostic-service:
+    build:
+      context: ./services/diagnostic-service
+      dockerfile: Dockerfile
+    container_name: sg-diagnostic-service
+    ports:
+      - "8008:8080"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - SQS_COMPLETED_QUEUE_NAME=workflow-completed
+      - SQS_FAILED_QUEUE_NAME=workflow-failed
+      - SFN_STATE_MACHINE_NAME=GovernanceDiagnosticWorkflow
+      - SNS_NOTIFICATIONS_TOPIC_NAME=sg-governance-notifications
+      - CHECKSTEP_SERVICE_URL=http://checkstep-service:8080
+      - LOG_LEVEL=INFO
+    depends_on:
+      localstack:
+        condition: service_healthy
+      checkstep-service:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

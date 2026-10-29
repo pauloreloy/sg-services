@@ -22,3 +22,17 @@ class GrantStatus:
     status: ProcessingStatus
     processed_at: datetime
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class StepStatusRecord:
+    """Represents the status of a specific choreographic step as defined in ADR 5.5 / 6.2."""
+
+    request_id: str
+    attempt_id: str
+    step_name: str
+    status: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    error_code: str | None = None
+    message: str | None = None

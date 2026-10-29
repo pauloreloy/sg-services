@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # --- DynamoDB ---
     dynamodb_table_name: str = "sg-share-processing-records"
     dynamodb_grant_id_index_name: str = "grant_id-processed_at-index"
+    dynamodb_governance_table_name: str = "sg-share-governance"
 
     # --- App ---
     app_name: str = "sharegrant-checkstep-service"

@@ -1,0 +1,301 @@
+{
+  "Comment": "Visual diagnostic reconstruction workflow for AWS Data Governance Choreography (ADR-001)",
+  "StartAt": "CheckAccountValidation",
+  "States": {
+    "CheckAccountValidation": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "http://checkstep-service:8080/internal/checkStep",
+        "Method": "POST",
+        "Headers": {
+          "Content-Type": "application/json"
+        },
+        "RequestBody": {
+          "requestId.$": "$.requestId",
+          "attemptId.$": "$.attemptId",
+          "stepName": "ACCOUNT_VALIDATION"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.ResponseBody.status",
+        "stepName.$": "$.ResponseBody.stepName",
+        "errorCode.$": "$.ResponseBody.errorCode",
+        "message.$": "$.ResponseBody.message"
+      },
+      "ResultPath": "$.checkAccountValidation",
+      "Next": "EvaluateAccountValidation",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.diagnosticError",
+          "Next": "DiagnosticError"
+        }
+      ]
+    },
+    "EvaluateAccountValidation": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.checkAccountValidation.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "CheckCatalogValidation"
+        },
+        {
+          "Variable": "$.checkAccountValidation.status",
+          "StringEquals": "FAILED",
+          "Next": "Failure"
+        }
+      ],
+      "Default": "DiagnosticError"
+    },
+    "CheckCatalogValidation": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "http://checkstep-service:8080/internal/checkStep",
+        "Method": "POST",
+        "Headers": {
+          "Content-Type": "application/json"
+        },
+        "RequestBody": {
+          "requestId.$": "$.requestId",
+          "attemptId.$": "$.attemptId",
+          "stepName": "CATALOG_VALIDATION"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.ResponseBody.status",
+        "stepName.$": "$.ResponseBody.stepName",
+        "errorCode.$": "$.ResponseBody.errorCode",
+        "message.$": "$.ResponseBody.message"
+      },
+      "ResultPath": "$.checkCatalogValidation",
+      "Next": "EvaluateCatalogValidation",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.diagnosticError",
+          "Next": "DiagnosticError"
+        }
+      ]
+    },
+    "EvaluateCatalogValidation": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.checkCatalogValidation.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "CheckResourceSharing"
+        },
+        {
+          "Variable": "$.checkCatalogValidation.status",
+          "StringEquals": "FAILED",
+          "Next": "Failure"
+        }
+      ],
+      "Default": "DiagnosticError"
+    },
+    "CheckResourceSharing": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "http://checkstep-service:8080/internal/checkStep",
+        "Method": "POST",
+        "Headers": {
+          "Content-Type": "application/json"
+        },
+        "RequestBody": {
+          "requestId.$": "$.requestId",
+          "attemptId.$": "$.attemptId",
+          "stepName": "RESOURCE_SHARING"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.ResponseBody.status",
+        "stepName.$": "$.ResponseBody.stepName",
+        "errorCode.$": "$.ResponseBody.errorCode",
+        "message.$": "$.ResponseBody.message"
+      },
+      "ResultPath": "$.checkResourceSharing",
+      "Next": "EvaluateResourceSharing",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.diagnosticError",
+          "Next": "DiagnosticError"
+        }
+      ]
+    },
+    "EvaluateResourceSharing": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.checkResourceSharing.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "CheckShareAcceptance"
+        },
+        {
+          "Variable": "$.checkResourceSharing.status",
+          "StringEquals": "FAILED",
+          "Next": "Failure"
+        }
+      ],
+      "Default": "DiagnosticError"
+    },
+    "CheckShareAcceptance": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "http://checkstep-service:8080/internal/checkStep",
+        "Method": "POST",
+        "Headers": {
+          "Content-Type": "application/json"
+        },
+        "RequestBody": {
+          "requestId.$": "$.requestId",
+          "attemptId.$": "$.attemptId",
+          "stepName": "SHARE_ACCEPTANCE"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.ResponseBody.status",
+        "stepName.$": "$.ResponseBody.stepName",
+        "errorCode.$": "$.ResponseBody.errorCode",
+        "message.$": "$.ResponseBody.message"
+      },
+      "ResultPath": "$.checkShareAcceptance",
+      "Next": "EvaluateShareAcceptance",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.diagnosticError",
+          "Next": "DiagnosticError"
+        }
+      ]
+    },
+    "EvaluateShareAcceptance": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.checkShareAcceptance.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "CheckResourceLinks"
+        },
+        {
+          "Variable": "$.checkShareAcceptance.status",
+          "StringEquals": "FAILED",
+          "Next": "Failure"
+        }
+      ],
+      "Default": "DiagnosticError"
+    },
+    "CheckResourceLinks": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "http://checkstep-service:8080/internal/checkStep",
+        "Method": "POST",
+        "Headers": {
+          "Content-Type": "application/json"
+        },
+        "RequestBody": {
+          "requestId.$": "$.requestId",
+          "attemptId.$": "$.attemptId",
+          "stepName": "RESOURCE_LINKS"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.ResponseBody.status",
+        "stepName.$": "$.ResponseBody.stepName",
+        "errorCode.$": "$.ResponseBody.errorCode",
+        "message.$": "$.ResponseBody.message"
+      },
+      "ResultPath": "$.checkResourceLinks",
+      "Next": "EvaluateResourceLinks",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.diagnosticError",
+          "Next": "DiagnosticError"
+        }
+      ]
+    },
+    "EvaluateResourceLinks": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.checkResourceLinks.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "CheckPermissions"
+        },
+        {
+          "Variable": "$.checkResourceLinks.status",
+          "StringEquals": "FAILED",
+          "Next": "Failure"
+        }
+      ],
+      "Default": "DiagnosticError"
+    },
+    "CheckPermissions": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Parameters": {
+        "ApiEndpoint": "http://checkstep-service:8080/internal/checkStep",
+        "Method": "POST",
+        "Headers": {
+          "Content-Type": "application/json"
+        },
+        "RequestBody": {
+          "requestId.$": "$.requestId",
+          "attemptId.$": "$.attemptId",
+          "stepName": "PERMISSIONS"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.ResponseBody.status",
+        "stepName.$": "$.ResponseBody.stepName",
+        "errorCode.$": "$.ResponseBody.errorCode",
+        "message.$": "$.ResponseBody.message"
+      },
+      "ResultPath": "$.checkPermissions",
+      "Next": "EvaluatePermissions",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.diagnosticError",
+          "Next": "DiagnosticError"
+        }
+      ]
+    },
+    "EvaluatePermissions": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.checkPermissions.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "Success"
+        },
+        {
+          "Variable": "$.checkPermissions.status",
+          "StringEquals": "FAILED",
+          "Next": "Failure"
+        }
+      ],
+      "Default": "DiagnosticError"
+    },
+    "Success": {
+      "Type": "Succeed"
+    },
+    "Failure": {
+      "Type": "Fail",
+      "Error": "ProvisioningFailed",
+      "Cause": "Uma etapa da coreografia foi registrada como FAILED."
+    },
+    "DiagnosticError": {
+      "Type": "Fail",
+      "Error": "DiagnosticFailed",
+      "Cause": "Não foi possível confirmar o estado da coreografia."
+    }
+  }
+}
